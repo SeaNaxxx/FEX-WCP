@@ -77,9 +77,9 @@ jobs:
           SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
 
           if [[ "$BRANCH" == "main" ]]; then
-            PKG="fexcore-${VER}-${COMMIT}"
+            PKG="${VER}-${COMMIT}"
           else
-            PKG="fexcore-${VER}-${COMMIT}-${SAFE_BRANCH}"
+            PKG="${VER}-${COMMIT}-${SAFE_BRANCH}"
           fi
 
           echo "VER=$VER" >> "$GITHUB_ENV"
