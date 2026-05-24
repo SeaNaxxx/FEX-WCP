@@ -34,44 +34,54 @@ jobs:
           git config --global user.name "SeaNaxxx"
           git config --global user.email "seanaxxx@users.noreply.github.com"
 
+      - name: Backup workflows
+        run: cp -r .github .github.bak
+
       - name: Add upstream remote
-        run: |
-          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+        run: git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
 
       - name: Fetch upstream
-        run: |
-          git fetch upstream ${{ env.UPSTREAM_BRANCH }} --no-tags
+        run: git fetch upstream ${{ env.UPSTREAM_BRANCH }} --no-tags
 
       - name: Check for upstream changes
         id: check
         run: |
-          LOCAL_COMMIT=$(git rev-parse HEAD)
-          UPSTREAM_COMMIT=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+          UPSTREAM_COMMIT_FULL=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
           UPSTREAM_COMMIT_SHORT=$(git rev-parse --short=8 upstream/${{ env.UPSTREAM_BRANCH }})
 
-          echo "Local: $LOCAL_COMMIT"
-          echo "Upstream: $UPSTREAM_COMMIT"
+          BEHIND=$(git rev-list HEAD..upstream/${{ env.UPSTREAM_BRANCH }} --count)
 
-          if [[ "$LOCAL_COMMIT" == "$UPSTREAM_COMMIT" ]]; then
+          if [[ "$BEHIND" -eq 0 ]]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No upstream changes detected"
+            echo "Fork is up to date with upstream"
           else
-            BEHIND=$(git rev-list HEAD..upstream/${{ env.UPSTREAM_BRANCH }} --count)
             echo "Fork is $BEHIND commits behind upstream"
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "upstream_commit=$UPSTREAM_COMMIT_SHORT" >> "$GITHUB_OUTPUT"
 
-      - name: Merge upstream
+          echo "upstream_commit=$UPSTREAM_COMMIT_SHORT" >> "$GITHUB_OUTPUT"
+          echo "upstream_commit_full=$UPSTREAM_COMMIT_FULL" >> "$GITHUB_OUTPUT"
+
+      - name: Reset and restore workflows
         if: steps.check.outputs.changed == 'true' || inputs.force_sync == 'true'
         run: |
-          git checkout ${{ env.FORK_BRANCH }}
-          git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit
+          # Reset to upstream (clean mirror)
+          git reset --hard upstream/${{ env.UPSTREAM_BRANCH }}
+
+          # Restore our workflow files
+          rm -rf .github
+          cp -r .github.bak .github
+
+          # Save upstream commit reference for build workflows
+          echo "${{ steps.check.outputs.upstream_commit_full }}" > .upstream-commit
+
+          # Commit workflow restore
+          git add .github .upstream-commit
+          git diff-index --quiet HEAD || git commit -m "chore: sync upstream (${{ steps.check.outputs.upstream_commit }}) and restore workflows"
 
       - name: Push to fork
         if: steps.check.outputs.changed == 'true' || inputs.force_sync == 'true'
-        run: |
-          git push origin ${{ env.FORK_BRANCH }}
+        run: git push --force origin ${{ env.FORK_BRANCH }}
 
       - name: Summary
         run: |
