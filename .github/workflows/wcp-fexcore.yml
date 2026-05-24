@@ -194,12 +194,5 @@ jobs:
           **llvm-mingw:** ${LLVM_TAG}
           **Built:** ${BUILD_DATE}
 
-          ### DLLs included
-          - \`libarm64ecfex.dll\` — ARM64EC translation layer
-          - \`libwow64fex.dll\` — WoW64 (32-bit) emulation layer
-
-          ### Usage in Winlator Fusion
-          Install via Contents Manager → FEXCore
-
           ---
           **Full Changelog:** ${CHANGELOG_LINK}"

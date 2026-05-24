@@ -63,7 +63,7 @@ jobs:
           echo "upstream_commit_full=$UPSTREAM_COMMIT_FULL" >> "$GITHUB_OUTPUT"
 
       - name: Reset and restore workflows
-        if: steps.check.outputs.changed == 'true' || inputs.force_sync == 'true'
+        if: steps.check.outputs.changed == 'true' || inputs.force_sync == true
         run: |
           # Reset to upstream (clean mirror)
           git reset --hard upstream/${{ env.UPSTREAM_BRANCH }}
@@ -80,7 +80,7 @@ jobs:
           git diff-index --quiet HEAD || git commit -m "chore: sync upstream (${{ steps.check.outputs.upstream_commit }}) and restore workflows"
 
       - name: Push to fork
-        if: steps.check.outputs.changed == 'true' || inputs.force_sync == 'true'
+        if: steps.check.outputs.changed == 'true' || inputs.force_sync == true
         run: git push --force origin ${{ env.FORK_BRANCH }}
 
       - name: Summary
