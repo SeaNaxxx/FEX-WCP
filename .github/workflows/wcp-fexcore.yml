@@ -166,6 +166,32 @@ jobs:
             if [[ "$FORCE_MODE" != "true" ]]; then exit 0; fi
             gh release delete "$PKG" --yes --cleanup-tag
           fi
+
+          BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          FULL_COMMIT=$(git rev-parse HEAD)
+          UPSTREAM_LINK="https://github.com/${UPSTREAM_REPO}/commit/${FULL_COMMIT}"
+
+          if [[ "$BRANCH" == "main" ]]; then
+            CHANGELOG_LINK="https://github.com/${UPSTREAM_REPO}/commits/${FULL_COMMIT}"
+          else
+            CHANGELOG_LINK="https://github.com/${UPSTREAM_REPO}/commits/${BRANCH}"
+          fi
+
           gh release create "$PKG" "${PKG}.wcp" \
             --title "$PKG" \
-            --notes "FEXCore ${VER} (branch: ${BRANCH}, commit: ${COMMIT}) built with llvm-mingw ${LLVM_TAG}"
+            --notes "## FEXCore ${VER}
+
+          **Commit:** [${UPSTREAM_REPO}@${COMMIT}](${UPSTREAM_LINK})
+          **Branch:** ${BRANCH}
+          **llvm-mingw:** ${LLVM_TAG}
+          **Built:** ${BUILD_DATE}
+
+          ### DLLs included
+          - \`libarm64ecfex.dll\` — ARM64EC translation layer
+          - \`libwow64fex.dll\` — WoW64 (32-bit) emulation layer
+
+          ### Usage in Winlator Fusion
+          Install via Contents Manager → FEXCore
+
+          ---
+          **Full Changelog:** ${CHANGELOG_LINK}"

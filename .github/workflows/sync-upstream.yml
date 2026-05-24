@@ -1,0 +1,81 @@
+name: Sync Upstream FEX
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: Force sync even if no upstream changes
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: FEX-Emu/FEX
+  UPSTREAM_BRANCH: main
+  FORK_BRANCH: main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "SeaNaxxx"
+          git config --global user.email "seanaxxx@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+
+      - name: Fetch upstream
+        run: |
+          git fetch upstream ${{ env.UPSTREAM_BRANCH }} --no-tags
+
+      - name: Check for upstream changes
+        id: check
+        run: |
+          LOCAL_COMMIT=$(git rev-parse HEAD)
+          UPSTREAM_COMMIT=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+          UPSTREAM_COMMIT_SHORT=$(git rev-parse --short=8 upstream/${{ env.UPSTREAM_BRANCH }})
+
+          echo "Local: $LOCAL_COMMIT"
+          echo "Upstream: $UPSTREAM_COMMIT"
+
+          if [[ "$LOCAL_COMMIT" == "$UPSTREAM_COMMIT" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream changes detected"
+          else
+            BEHIND=$(git rev-list HEAD..upstream/${{ env.UPSTREAM_BRANCH }} --count)
+            echo "Fork is $BEHIND commits behind upstream"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "upstream_commit=$UPSTREAM_COMMIT_SHORT" >> "$GITHUB_OUTPUT"
+
+      - name: Merge upstream
+        if: steps.check.outputs.changed == 'true' || inputs.force_sync == 'true'
+        run: |
+          git checkout ${{ env.FORK_BRANCH }}
+          git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit
+
+      - name: Push to fork
+        if: steps.check.outputs.changed == 'true' || inputs.force_sync == 'true'
+        run: |
+          git push origin ${{ env.FORK_BRANCH }}
+
+      - name: Summary
+        run: |
+          echo "=== Sync Summary ==="
+          echo "Upstream: ${{ steps.check.outputs.upstream_commit }}"
+          echo "Changed: ${{ steps.check.outputs.changed }}"
+          echo "Force: ${{ inputs.force_sync }}"
