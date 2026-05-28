@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   UPSTREAM_REPO: FEX-Emu/FEX
