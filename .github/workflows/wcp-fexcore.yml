@@ -148,7 +148,6 @@ jobs:
           cp "${SRC}/libarm64ecfex.dll" pkg/system32/libarm64ecfex.dll
           cp "${SRC}/libwow64fex.dll"   pkg/system32/libwow64fex.dll
 
-          llvm-strip --strip-all pkg/system32/*.dll
 
           cat > pkg/profile.json << JSONEOF
           {

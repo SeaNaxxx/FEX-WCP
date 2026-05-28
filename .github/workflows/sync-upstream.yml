@@ -4,12 +4,6 @@ on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
-    inputs:
-      force_sync:
-        description: Force sync even if no upstream changes
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -23,69 +17,63 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout fork
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure Git
+      - name: Setup git
         run: |
-          git config --global user.name "SeaNaxxx"
-          git config --global user.email "seanaxxx@users.noreply.github.com"
-
-      - name: Backup workflows
-        run: cp -r .github .github.bak
-
-      - name: Add upstream remote
-        run: git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git config user.name "SeaNaxxx"
+          git config user.email "SeaNaxxx@users.noreply.github.com"
 
       - name: Fetch upstream
-        run: git fetch upstream ${{ env.UPSTREAM_BRANCH }} --no-tags
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream ${{ env.UPSTREAM_BRANCH }} --no-tags
 
-      - name: Check for upstream changes
+      - name: Check changes
         id: check
         run: |
-          UPSTREAM_COMMIT_FULL=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
-          UPSTREAM_COMMIT_SHORT=$(git rev-parse --short=8 upstream/${{ env.UPSTREAM_BRANCH }})
-
           BEHIND=$(git rev-list HEAD..upstream/${{ env.UPSTREAM_BRANCH }} --count)
-
-          if [[ "$BEHIND" -eq 0 ]]; then
+          if [ "$BEHIND" -eq 0 ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Fork is up to date with upstream"
+            echo "Up to date"
           else
-            echo "Fork is $BEHIND commits behind upstream"
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "$BEHIND commits behind"
           fi
+          echo "commit=$(git rev-parse --short=8 upstream/${{ env.UPSTREAM_BRANCH }})" >> "$GITHUB_OUTPUT"
+          echo "commit_full=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})" >> "$GITHUB_OUTPUT"
 
-          echo "upstream_commit=$UPSTREAM_COMMIT_SHORT" >> "$GITHUB_OUTPUT"
-          echo "upstream_commit_full=$UPSTREAM_COMMIT_FULL" >> "$GITHUB_OUTPUT"
-
-      - name: Reset and restore workflows
-        if: steps.check.outputs.changed == 'true' || inputs.force_sync == true
+      - name: Merge upstream
+        if: steps.check.outputs.changed == 'true'
         run: |
-          # Reset to upstream (clean mirror)
-          git reset --hard upstream/${{ env.UPSTREAM_BRANCH }}
+          mkdir -p /tmp/wf
+          cp -r .github/workflows/* /tmp/wf/ 2>/dev/null || true
 
-          # Restore our workflow files
-          rm -rf .github
-          cp -r .github.bak .github
+          git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-commit --no-ff || true
 
-          # Save upstream commit reference for build workflows
-          echo "${{ steps.check.outputs.upstream_commit_full }}" > .upstream-commit
+          git diff --name-only --diff-filter=U 2>/dev/null | grep -v '^\.github/' | while read f; do
+            git checkout upstream/${{ env.UPSTREAM_BRANCH }} -- "$f" 2>/dev/null || true
+          done
 
-          # Commit workflow restore
-          git add .github .upstream-commit
-          git diff-index --quiet HEAD || git commit -m "chore: sync upstream (${{ steps.check.outputs.upstream_commit }}) and restore workflows"
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp -r /tmp/wf/* .github/workflows/ 2>/dev/null || true
 
-      - name: Push to fork
-        if: steps.check.outputs.changed == 'true' || inputs.force_sync == true
-        run: git push --force origin ${{ env.FORK_BRANCH }}
+          echo "${{ steps.check.outputs.commit_full }}" > .upstream-commit
 
-      - name: Summary
-        run: |
-          echo "=== Sync Summary ==="
-          echo "Upstream: ${{ steps.check.outputs.upstream_commit }}"
-          echo "Changed: ${{ steps.check.outputs.changed }}"
-          echo "Force: ${{ inputs.force_sync }}"
+          git add -A
+          GIT_COMMITTER_NAME="SeaNaxxx" GIT_COMMITTER_EMAIL="SeaNaxxx@users.noreply.github.com" \
+            git commit -m "sync upstream ${{ steps.check.outputs.commit }}"
+
+      - name: Push
+        if: steps.check.outputs.changed == 'true'
+        run: git push origin ${{ env.FORK_BRANCH }}
+
+      - name: Trigger build
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run wcp-fexcore.yml
