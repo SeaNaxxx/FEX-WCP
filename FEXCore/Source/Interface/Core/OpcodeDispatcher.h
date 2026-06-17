@@ -861,6 +861,7 @@ public:
   RefVSIB LoadVSIB(const X86Tables::DecodedOp& Op, const X86Tables::DecodedOperand& Operand, uint32_t Flags);
   void VPGATHER(OpcodeArgs, OpSize AddrElementSize);
 
+  void AVXExtendVectorElements(OpcodeArgs, IR::OpSize ElementSize, IR::OpSize DstElementSize, bool Signed);
   void ExtendVectorElements(OpcodeArgs, IR::OpSize ElementSize, IR::OpSize DstElementSize, bool Signed);
 
   void VectorRound(OpcodeArgs, IR::OpSize ElementSize);
@@ -871,7 +872,10 @@ public:
   void VectorVariableBlend(OpcodeArgs, IR::OpSize ElementSize);
   void PTestOpImpl(OpSize Size, Ref Dest, Ref Src);
   void PTestOp(OpcodeArgs);
+
+  void AVXPHMINPOSUWOp(OpcodeArgs);
   void PHMINPOSUWOp(OpcodeArgs);
+
   void DPPOp(OpcodeArgs, IR::OpSize ElementSize);
 
   void MPSADBWOp(OpcodeArgs);
