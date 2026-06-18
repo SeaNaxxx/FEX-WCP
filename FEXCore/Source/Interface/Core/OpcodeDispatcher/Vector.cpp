@@ -102,14 +102,14 @@ void OpDispatchBuilder::MOVHPDOp(OpcodeArgs) {
       Ref Src = LoadSourceGPR(Op, Op->Src[0], Op->Flags);
       Ref Dest = LoadSourceFPR_WithOpSize(Op, Op->Dest, OpSize::i128Bit, Op->Flags);
       auto Result = _VInsElement(OpSize::i128Bit, OpSize::i64Bit, 1, 0, Dest, Src);
-      StoreResultFPR(Op, Result);
+      StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
     } else {
       // If the destination is a GPR then the source is memory
       // xmm1[127:64] = src
       Ref Src = MakeSegmentAddress(Op, Op->Src[0]);
       Ref Dest = LoadSourceFPR_WithOpSize(Op, Op->Dest, OpSize::i128Bit, Op->Flags);
       auto Result = _VLoadVectorElement(OpSize::i128Bit, OpSize::i64Bit, Dest, 1, Src);
-      StoreResultFPR(Op, Result);
+      StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
     }
   } else {
     // In this case memory is the destination and the high bits of the XMM are source
@@ -141,13 +141,13 @@ void OpDispatchBuilder::MOVLPOp(OpcodeArgs) {
       Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags, {.Align = OpSize::i128Bit});
       Ref Dest = LoadSourceFPR(Op, Op->Dest, Op->Flags, {.Align = OpSize::i128Bit});
       auto Result = _VInsElement(OpSize::i128Bit, OpSize::i64Bit, 0, 1, Dest, Src);
-      StoreResultFPR_WithOpSize(Op, Op->Dest, Result, OpSize::i128Bit, OpSize::i128Bit);
+      StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result, OpSize::i128Bit);
     } else {
       const auto DstSize = OpSizeFromDst(Op);
       Ref Src = MakeSegmentAddress(Op, Op->Src[0]);
       Ref Dest = LoadSourceFPR_WithOpSize(Op, Op->Dest, DstSize, Op->Flags);
       auto Result = _VLoadVectorElement(OpSize::i128Bit, OpSize::i64Bit, Dest, 0, Src);
-      StoreResultFPR(Op, Result);
+      StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
     }
   } else {
     Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags, {.Align = OpSize::i64Bit});
@@ -259,7 +259,7 @@ void OpDispatchBuilder::VectorXOROp(OpcodeArgs) {
   // Special case for vector xor with itself being the optimal way for x86 to zero vector registers.
   if (Op->Dest.IsGPR() && Op->Src[0].IsGPR() && Op->Dest.Data.GPR.GPR == Op->Src[0].Data.GPR.GPR) {
     const auto ZeroRegister = LoadZeroVector(Size);
-    StoreResultFPR(Op, ZeroRegister);
+    StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, ZeroRegister);
     return;
   }
 
@@ -631,11 +631,11 @@ void OpDispatchBuilder::VectorUnaryOp(OpcodeArgs, IROps IROp, IR::OpSize Element
   // unnecessary sign extension on the element to be operated on.
   // In the event of a memory operand, we load the exact element size.
   const auto Size = OpSizeFromSrc(Op);
-
   Ref Src = LoadSourceFPR_WithOpSize(Op, Op->Src[0], Size, Op->Flags);
 
   DeriveOp(ALUOp, IROp, _VFSqrt(Size, ElementSize, Src));
-  StoreResultFPR(Op, ALUOp);
+
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, ALUOp);
 }
 
 void OpDispatchBuilder::AVXVectorUnaryOp(OpcodeArgs, IROps IROp, IR::OpSize ElementSize) {
@@ -780,7 +780,7 @@ void OpDispatchBuilder::PUNPCKLOp(OpcodeArgs, IR::OpSize ElementSize) {
   Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags);
 
   auto ALUOp = _VZip(Size, ElementSize, Dest, Src);
-  StoreResultFPR(Op, ALUOp);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, ALUOp);
 }
 
 void OpDispatchBuilder::VPUNPCKLOp(OpcodeArgs, IR::OpSize ElementSize) {
@@ -809,7 +809,7 @@ void OpDispatchBuilder::PUNPCKHOp(OpcodeArgs, IR::OpSize ElementSize) {
   Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags);
 
   auto ALUOp = _VZip2(Size, ElementSize, Dest, Src);
-  StoreResultFPR(Op, ALUOp);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, ALUOp);
 }
 
 void OpDispatchBuilder::VPUNPCKHOp(OpcodeArgs, IR::OpSize ElementSize) {
@@ -870,7 +870,7 @@ void OpDispatchBuilder::PSHUFBOp(OpcodeArgs) {
   Ref Src2 = LoadSourceFPR(Op, Op->Src[0], Op->Flags);
 
   Ref Result = PSHUFBOpImpl(SrcSize, Src1, Src2, GeneratePSHUFBMask(SrcSize));
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::VPSHUFBOp(OpcodeArgs) {
@@ -1455,7 +1455,7 @@ void OpDispatchBuilder::PSHUFWOp(OpcodeArgs, bool Low) {
 
   Ref Dest = PShufWLane(Size, IndexedVectorConstant, Low, Src, Shuffle);
 
-  StoreResultFPR(Op, Dest);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Dest);
 }
 
 Ref OpDispatchBuilder::Single128Bit4ByteVectorShuffle(Ref Src, uint8_t Shuffle) {
@@ -1687,7 +1687,7 @@ Ref OpDispatchBuilder::Single128Bit4ByteVectorShuffle(Ref Src, uint8_t Shuffle) 
 void OpDispatchBuilder::PSHUFDOp(OpcodeArgs) {
   uint16_t Shuffle = Op->Src[1].Literal();
   Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags);
-  StoreResultFPR(Op, Single128Bit4ByteVectorShuffle(Src, Shuffle));
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Single128Bit4ByteVectorShuffle(Src, Shuffle));
 }
 
 void OpDispatchBuilder::VPSHUFWOp(OpcodeArgs, IR::OpSize ElementSize, bool Low) {
@@ -1941,7 +1941,7 @@ void OpDispatchBuilder::SHUFOp(OpcodeArgs, IR::OpSize ElementSize) {
   uint8_t Shuffle = Op->Src[1].Literal();
 
   Ref Result = SHUFOpImpl(Op, OpSizeFromDst(Op), ElementSize, Src1Node, Src2Node, Shuffle);
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::VSHUFOp(OpcodeArgs, IR::OpSize ElementSize) {
@@ -2020,7 +2020,7 @@ Ref OpDispatchBuilder::PINSROpImpl(OpcodeArgs, IR::OpSize ElementSize, const X86
 
 void OpDispatchBuilder::PINSROp(OpcodeArgs, IR::OpSize ElementSize) {
   Ref Result = PINSROpImpl(Op, ElementSize, Op->Dest, Op->Src[0], Op->Src[1]);
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::VPINSRBOp(OpcodeArgs) {
@@ -2096,7 +2096,7 @@ Ref OpDispatchBuilder::InsertPSOpImpl(OpcodeArgs, const X86Tables::DecodedOperan
 
 void OpDispatchBuilder::InsertPSOp(OpcodeArgs) {
   Ref Result = InsertPSOpImpl(Op, Op->Dest, Op->Src[0], Op->Src[1]);
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::VINSERTPSOp(OpcodeArgs) {
@@ -2171,7 +2171,7 @@ void OpDispatchBuilder::PSIGN(OpcodeArgs, IR::OpSize ElementSize) {
   Ref Dest = LoadSourceFPR(Op, Op->Dest, Op->Flags);
   Ref Res = PSIGNImpl(Op, ElementSize, Dest, Src);
 
-  StoreResultFPR(Op, Res);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Res);
 }
 
 void OpDispatchBuilder::VPSIGN(OpcodeArgs, IR::OpSize ElementSize) {
