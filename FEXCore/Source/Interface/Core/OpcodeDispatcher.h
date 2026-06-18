@@ -360,7 +360,7 @@ public:
   void MOVGPRNTOp(OpcodeArgs);
   void MOVVectorAlignedOp(OpcodeArgs);
   void MOVVectorUnalignedOp(OpcodeArgs);
-  void MOVVectorNTOp(OpcodeArgs);
+  void MOVVectorNTOp(OpcodeArgs, bool IsAVX);
   void ALUOp(OpcodeArgs, FEXCore::IR::IROps ALUIROp, FEXCore::IR::IROps AtomicFetchOp, unsigned SrcIdx);
   void LSLOp(OpcodeArgs);
   void INTOp(OpcodeArgs);
@@ -619,8 +619,8 @@ public:
   void VMOVLPOp(OpcodeArgs);
 
   void VMOVDDUPOp(OpcodeArgs);
-  void VMOVSHDUPOp(OpcodeArgs);
-  void VMOVSLDUPOp(OpcodeArgs);
+  void VMOVSHDUPOp(OpcodeArgs, bool IsAVX);
+  void VMOVSLDUPOp(OpcodeArgs, bool IsAVX);
 
   void VMOVSDOp(OpcodeArgs);
   void VMOVSSOp(OpcodeArgs);
