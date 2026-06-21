@@ -2755,7 +2755,7 @@ void OpDispatchBuilder::MMX_To_XMM_Vector_CVT_Int_To_Float(OpcodeArgs) {
   // Always signed
   Src = _Vector_SToF(DstSize, ElementSize, Src);
 
-  StoreResultFPR(Op, Src);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Src);
 }
 
 void OpDispatchBuilder::XMM_To_MMX_Vector_CVT_Float_To_Int(OpcodeArgs, IR::OpSize SrcElementSize, bool HostRoundingMode) {
@@ -3455,24 +3455,18 @@ void OpDispatchBuilder::VPMULLOp(OpcodeArgs, IR::OpSize ElementSize, bool Signed
   StoreResultFPR(Op, Result);
 }
 
-template<bool ToXMM>
-void OpDispatchBuilder::MOVQ2DQ(OpcodeArgs) {
+void OpDispatchBuilder::MOVQ2DQ(OpcodeArgs, bool ToXMM) {
   Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags);
 
   // This instruction is a bit special in that if the source is MMX then it zexts to 128bit
-  if constexpr (ToXMM) {
-    const auto Index = Op->Dest.Data.GPR.GPR - FEXCore::X86State::REG_XMM_0;
-
+  if (ToXMM) {
     Src = VZeroExtendOperand(OpSize::i128Bit, Op->Src[0], Src);
-    StoreXMMRegister(Index, Src);
+    StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Src);
   } else {
     // This is simple, just store the result
     StoreResultFPR(Op, Src);
   }
 }
-
-template void OpDispatchBuilder::MOVQ2DQ<false>(OpcodeArgs);
-template void OpDispatchBuilder::MOVQ2DQ<true>(OpcodeArgs);
 
 Ref OpDispatchBuilder::ADDSUBPOpImpl(OpSize Size, IR::OpSize ElementSize, Ref Src1, Ref Src2) {
   if (CTX->HostFeatures.SupportsFCMA) {
@@ -5237,7 +5231,7 @@ void OpDispatchBuilder::VPERMILRegOp(OpcodeArgs, IR::OpSize ElementSize) {
   StoreResultFPR(Op, Result);
 }
 
-void OpDispatchBuilder::PCMPXSTRXOpImpl(OpcodeArgs, bool IsExplicit, bool IsMask) {
+void OpDispatchBuilder::PCMPXSTRXOpImpl(OpcodeArgs, bool IsExplicit, bool IsMask, bool IsAVX) {
   const uint16_t Control = Op->Src[1].Literal();
 
   // NOTE: Unlike most other SSE/AVX instructions, the SSE4.2 string and text
@@ -5292,10 +5286,21 @@ void OpDispatchBuilder::PCMPXSTRXOpImpl(OpcodeArgs, bool IsExplicit, bool IsMask
         Ref SignBit = _Sbfe(OpSize::i64Bit, 1, i, IntermediateResult);
         Result = _VInsGPR(OpSize::i128Bit, IR::SizeToOpSize(ElementSize), i, Result, SignBit);
       }
-      StoreXMMRegister(0, Result);
+
+      if (IsAVX) {
+        StoreXMMRegister(0, Result);
+      } else {
+        StoreXMMRegister_WithAVXInsert(VectorOpType::SSE, 0, Result);
+      }
     } else {
       // We insert the intermediate result as-is.
-      StoreXMMRegister(0, _VCastFromGPR(OpSize::i128Bit, OpSize::i16Bit, IntermediateResult));
+      Ref Result = _VCastFromGPR(OpSize::i128Bit, OpSize::i16Bit, IntermediateResult);
+
+      if (IsAVX) {
+        StoreXMMRegister(0, Result);
+      } else {
+        StoreXMMRegister_WithAVXInsert(VectorOpType::SSE, 0, Result);
+      }
     }
   } else {
     // For the indexed variant of the instructions, if control[6] is set, then we
@@ -5319,17 +5324,17 @@ void OpDispatchBuilder::PCMPXSTRXOpImpl(OpcodeArgs, bool IsExplicit, bool IsMask
   ZeroPF_AF();
 }
 
-void OpDispatchBuilder::VPCMPESTRIOp(OpcodeArgs) {
-  PCMPXSTRXOpImpl(Op, true, false);
+void OpDispatchBuilder::VPCMPESTRIOp(OpcodeArgs, bool IsAVX) {
+  PCMPXSTRXOpImpl(Op, true, false, IsAVX);
 }
-void OpDispatchBuilder::VPCMPESTRMOp(OpcodeArgs) {
-  PCMPXSTRXOpImpl(Op, true, true);
+void OpDispatchBuilder::VPCMPESTRMOp(OpcodeArgs, bool IsAVX) {
+  PCMPXSTRXOpImpl(Op, true, true, IsAVX);
 }
-void OpDispatchBuilder::VPCMPISTRIOp(OpcodeArgs) {
-  PCMPXSTRXOpImpl(Op, false, false);
+void OpDispatchBuilder::VPCMPISTRIOp(OpcodeArgs, bool IsAVX) {
+  PCMPXSTRXOpImpl(Op, false, false, IsAVX);
 }
-void OpDispatchBuilder::VPCMPISTRMOp(OpcodeArgs) {
-  PCMPXSTRXOpImpl(Op, false, true);
+void OpDispatchBuilder::VPCMPISTRMOp(OpcodeArgs, bool IsAVX) {
+  PCMPXSTRXOpImpl(Op, false, true, IsAVX);
 }
 
 void OpDispatchBuilder::VFMAImpl(OpcodeArgs, IROps IROp, bool Scalar, uint8_t Src1Idx, uint8_t Src2Idx, uint8_t AddendIdx) {
@@ -5540,7 +5545,7 @@ void OpDispatchBuilder::Extrq_imm(OpcodeArgs) {
   const Ref MaskVector = _VCastFromGPR(OpSize::i128Bit, OpSize::i64Bit, _Constant(Mask));
   Result = _VAnd(OpSize::i128Bit, OpSize::i64Bit, Result, MaskVector);
 
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::Insertq_imm(OpcodeArgs) {
@@ -5568,7 +5573,7 @@ void OpDispatchBuilder::Insertq_imm(OpcodeArgs) {
   Dest = _VAnd(OpSize::i64Bit, OpSize::i64Bit, Dest, MaskVector);
   const Ref Result = _VOr(OpSize::i64Bit, OpSize::i64Bit, Dest, Src);
 
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::Extrq(OpcodeArgs) {
@@ -5593,7 +5598,7 @@ void OpDispatchBuilder::Extrq(OpcodeArgs) {
 
   Result = _VAnd(OpSize::i128Bit, OpSize::i64Bit, Result, GenerateMask(MaskWidthBits));
 
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 void OpDispatchBuilder::Insertq(OpcodeArgs) {
@@ -5625,7 +5630,7 @@ void OpDispatchBuilder::Insertq(OpcodeArgs) {
 
   Ref Result = _VAnd(OpSize::i64Bit, OpSize::i64Bit, Dest, DstMask);
   Result = _VOr(OpSize::i64Bit, OpSize::i64Bit, Result, SrcData);
-  StoreResultFPR(Op, Result);
+  StoreResult_WithAVXInsert(VectorOpType::SSE, RegClass::FPR, Op, Result);
 }
 
 } // namespace FEXCore::IR
