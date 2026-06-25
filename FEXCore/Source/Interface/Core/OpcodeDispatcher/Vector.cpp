@@ -5012,9 +5012,15 @@ void OpDispatchBuilder::VPERMQOp(OpcodeArgs) {
   }
 
   default: {
-    Result = LoadZeroVector(DstSize);
+    Result = Src;
     for (size_t i = 0; i < IR::NumElements(DstSize, IR::OpSize::i64Bit); i++) {
+      // If we have a matching index, then we don't need to perform an insert,
+      // since all we'd be doing is inserting the same data.
       const auto SrcIndex = (Selector >> (i * 2)) & 0b11;
+      if (i == SrcIndex) {
+        continue;
+      }
+
       Result = _VInsElement(DstSize, OpSize::i64Bit, i, SrcIndex, Result, Src);
     }
     break;
@@ -5301,8 +5307,6 @@ void OpDispatchBuilder::PCMPXSTRXOpImpl(OpcodeArgs, bool IsExplicit, bool IsMask
     IntermediateResult = _VPCMPISTRX(Src1, Src2, Control);
   }
 
-  Ref ZeroConst = Constant(0);
-
   if (IsMask) {
     // For the masked variant of the instructions, if control[6] is set, then we
     // need to expand the intermediate result into a byte or word mask (depending
@@ -5342,6 +5346,8 @@ void OpDispatchBuilder::PCMPXSTRXOpImpl(OpcodeArgs, bool IsExplicit, bool IsMask
       }
     }
   } else {
+    Ref ZeroConst = Constant(0);
+
     // For the indexed variant of the instructions, if control[6] is set, then we
     // store the index of the most significant bit into ECX. If it's not set,
     // then we store the least significant bit.
