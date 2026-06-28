@@ -53,14 +53,14 @@ int main(int argc, char** argv, char** const envp) {
 
   // Check if a local FEX to FEXBash exists
   // If it does then it takes priority over the installed one
-  if (!std::filesystem::exists(FEXPath)) {
+  if (!std::filesystem::is_regular_file(FEXPath)) {
     std::error_code ec;
     auto FEXBashPath = std::filesystem::read_symlink("/proc/self/exe", ec);
     if (!ec) {
       FEXPath = FEXBashPath.replace_filename("FEX");
     }
 
-    if (!std::filesystem::exists(FEXPath)) {
+    if (!std::filesystem::is_regular_file(FEXPath)) {
       fmt::print(stderr, "Could not locate FEX executable\n");
       std::abort();
     }
@@ -97,7 +97,9 @@ int main(int argc, char** argv, char** const envp) {
       Envp.emplace_back(envp[i]);
     }
   }
-  Envp.emplace_back(EnchantedPS1(PS1Env).c_str());
+  // Keep the string alive until after execve.
+  const std::string PS1 = EnchantedPS1(PS1Env);
+  Envp.emplace_back(PS1.c_str());
   Envp.emplace_back(nullptr);
 
   return execve(Argv[0], const_cast<char* const*>(Argv.data()), const_cast<char* const*>(&Envp[0]));
