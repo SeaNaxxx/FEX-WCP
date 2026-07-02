@@ -1036,24 +1036,28 @@ DEF_OP(VMov) {
 
   const auto Dst = GetVReg(Node);
   const auto Source = GetVReg(Op->Source);
+  const auto Sub64BitHandler = [&](ARMEmitter::SubRegSize InsertSize) {
+    if (Dst != Source) {
+      movi(ARMEmitter::SubRegSize::i64Bit, Dst.Q(), 0);
+      ins(InsertSize, Dst, 0, Source, 0);
+    } else {
+      movi(ARMEmitter::SubRegSize::i64Bit, VTMP1.Q(), 0);
+      ins(InsertSize, VTMP1, 0, Source, 0);
+      mov(Dst.Q(), VTMP1.Q());
+    }
+  };
 
   switch (OpSize) {
   case IR::OpSize::i8Bit: {
-    movi(ARMEmitter::SubRegSize::i64Bit, VTMP1.Q(), 0);
-    ins(ARMEmitter::SubRegSize::i8Bit, VTMP1, 0, Source, 0);
-    mov(Dst.Q(), VTMP1.Q());
+    Sub64BitHandler(ARMEmitter::SubRegSize::i8Bit);
     break;
   }
   case IR::OpSize::i16Bit: {
-    movi(ARMEmitter::SubRegSize::i64Bit, VTMP1.Q(), 0);
-    ins(ARMEmitter::SubRegSize::i16Bit, VTMP1, 0, Source, 0);
-    mov(Dst.Q(), VTMP1.Q());
+    Sub64BitHandler(ARMEmitter::SubRegSize::i16Bit);
     break;
   }
   case IR::OpSize::i32Bit: {
-    movi(ARMEmitter::SubRegSize::i64Bit, VTMP1.Q(), 0);
-    ins(ARMEmitter::SubRegSize::i32Bit, VTMP1, 0, Source, 0);
-    mov(Dst.Q(), VTMP1.Q());
+    Sub64BitHandler(ARMEmitter::SubRegSize::i32Bit);
     break;
   }
   case IR::OpSize::i64Bit: {
@@ -1536,9 +1540,14 @@ DEF_OP(VFRecp) {
       return;
     }
 
-    fmov(SubRegSize.Vector, VTMP1.Z(), 1.0);
-    fdiv(SubRegSize.Vector, VTMP1.Z(), Pred, VTMP1.Z(), Vector.Z());
-    mov(Dst.Z(), VTMP1.Z());
+    if (Dst != Vector) {
+      fmov(SubRegSize.Vector, Dst.Z(), 1.0);
+      fdiv(SubRegSize.Vector, Dst.Z(), Pred, Dst.Z(), Vector.Z());
+    } else {
+      fmov(SubRegSize.Vector, VTMP1.Z(), 1.0);
+      fdiv(SubRegSize.Vector, VTMP1.Z(), Pred, VTMP1.Z(), Vector.Z());
+      mov(Dst.Z(), VTMP1.Z());
+    }
   } else {
     if (IsScalar) {
       if (ElementSize == IR::OpSize::i32Bit && HostSupportsRPRES) {
@@ -1790,10 +1799,14 @@ DEF_OP(VUMin) {
       break;
     }
     case IR::OpSize::i64Bit: {
-      cmhi(SubRegSize, VTMP1.Q(), Vector2.Q(), Vector1.Q());
-      mov(VTMP2.Q(), Vector1.Q());
-      bif(VTMP2.Q(), Vector2.Q(), VTMP1.Q());
-      mov(Dst.Q(), VTMP2.Q());
+      if (Dst != Vector1 && Dst != Vector2) {
+        cmhi(SubRegSize, Dst.Q(), Vector1.Q(), Vector2.Q());
+        bsl(Dst.Q(), Vector2.Q(), Vector1.Q());
+      } else {
+        cmhi(SubRegSize, VTMP1.Q(), Vector1.Q(), Vector2.Q());
+        bsl(VTMP1.Q(), Vector2.Q(), Vector1.Q());
+        mov(Dst.Q(), VTMP1.Q());
+      }
       break;
     }
     default: break;
@@ -1839,10 +1852,14 @@ DEF_OP(VSMin) {
       break;
     }
     case IR::OpSize::i64Bit: {
-      cmgt(SubRegSize, VTMP1.Q(), Vector1.Q(), Vector2.Q());
-      mov(VTMP2.Q(), Vector1.Q());
-      bif(VTMP2.Q(), Vector2.Q(), VTMP1.Q());
-      mov(Dst.Q(), VTMP2.Q());
+      if (Dst != Vector1 && Dst != Vector2) {
+        cmgt(SubRegSize, Dst.Q(), Vector1.Q(), Vector2.Q());
+        bsl(Dst.Q(), Vector2.Q(), Vector1.Q());
+      } else {
+        cmgt(SubRegSize, VTMP1.Q(), Vector1.Q(), Vector2.Q());
+        bsl(VTMP1.Q(), Vector2.Q(), Vector1.Q());
+        mov(Dst.Q(), VTMP1.Q());
+      }
       break;
     }
     default: break;
@@ -1888,10 +1905,14 @@ DEF_OP(VUMax) {
       break;
     }
     case IR::OpSize::i64Bit: {
-      cmhi(SubRegSize, VTMP1.Q(), Vector2.Q(), Vector1.Q());
-      mov(VTMP2.Q(), Vector1.Q());
-      bif(VTMP2.Q(), Vector2.Q(), VTMP1.Q());
-      mov(Dst.Q(), VTMP2.Q());
+      if (Dst != Vector1 && Dst != Vector2) {
+        cmhi(SubRegSize, Dst.Q(), Vector1.Q(), Vector2.Q());
+        bsl(Dst.Q(), Vector1.Q(), Vector2.Q());
+      } else {
+        cmhi(SubRegSize, VTMP1.Q(), Vector1.Q(), Vector2.Q());
+        bsl(VTMP1.Q(), Vector1.Q(), Vector2.Q());
+        mov(Dst.Q(), VTMP1.Q());
+      }
       break;
     }
     default: break;
@@ -1937,10 +1958,14 @@ DEF_OP(VSMax) {
       break;
     }
     case IR::OpSize::i64Bit: {
-      cmgt(SubRegSize, VTMP1.Q(), Vector2.Q(), Vector1.Q());
-      mov(VTMP2.Q(), Vector1.Q());
-      bif(VTMP2.Q(), Vector2.Q(), VTMP1.Q());
-      mov(Dst.Q(), VTMP2.Q());
+      if (Dst != Vector1 && Dst != Vector2) {
+        cmgt(SubRegSize, Dst.Q(), Vector1.Q(), Vector2.Q());
+        bsl(Dst.Q(), Vector1.Q(), Vector2.Q());
+      } else {
+        cmgt(SubRegSize, VTMP1.Q(), Vector1.Q(), Vector2.Q());
+        bsl(VTMP1.Q(), Vector1.Q(), Vector2.Q());
+        mov(Dst.Q(), VTMP1.Q());
+      }
       break;
     }
     default: break;
