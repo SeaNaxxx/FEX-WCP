@@ -1139,9 +1139,16 @@ DEF_OP(VOrn) {
   const auto Vector2 = GetVReg(Op->Vector2);
 
   if (HostSupportsSVE256 && Is256Bit) {
-    const auto Pred = PRED_TMP_32B.Merging();
-    not_(ARMEmitter::SubRegSize::i8Bit, VTMP1.Z(), Pred, Vector2.Z());
-    orr(Dst.Z(), Vector1.Z(), VTMP1.Z());
+    if (Dst == Vector1) {
+      bsl2n(Dst.Z(), Dst.Z(), Vector2.Z(), Dst.Z());
+    } else if (Dst == Vector2) {
+      const auto Pred = PRED_TMP_32B.Merging();
+      not_(ARMEmitter::SubRegSize::i8Bit, Dst.Z(), Pred, Dst.Z());
+      orr(Dst.Z(), Vector1.Z(), Dst.Z());
+    } else {
+      movprfx(Dst.Z(), Vector1.Z());
+      bsl2n(Dst.Z(), Dst.Z(), Vector2.Z(), Vector1.Z());
+    }
   } else if (Is128Bit) {
     orn(Dst.Q(), Vector1.Q(), Vector2.Q());
   } else {
@@ -3296,8 +3303,13 @@ DEF_OP(VUShrNI) {
   const auto Vector = GetVReg(Op->Vector);
 
   if (HostSupportsSVE256 && Is256Bit) {
-    shrnb(SubRegSize, Dst.Z(), Vector.Z(), BitShift);
-    uzp1(SubRegSize, Dst.Z(), Dst.Z(), Dst.Z());
+    if (BitShift == 0) {
+      mov_imm(ARMEmitter::SubRegSize::i64Bit, VTMP1.Z(), 0);
+      uzp1(SubRegSize, Dst.Z(), Dst.Z(), VTMP1.Z());
+    } else {
+      shrnb(SubRegSize, Dst.Z(), Vector.Z(), BitShift);
+      uzp1(SubRegSize, Dst.Z(), Dst.Z(), Dst.Z());
+    }
   } else {
     if (BitShift == 0) {
       xtn(SubRegSize, Dst.D(), Vector.D());
