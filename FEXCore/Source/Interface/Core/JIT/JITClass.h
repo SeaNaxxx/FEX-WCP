@@ -105,7 +105,7 @@ private:
   };
   fextl::vector<PendingJumpThunk> PendingJumpThunks;
 
-  Utils::PoolBufferWithTimedRetirement<uint8_t*, 5000, 500> TempAllocator;
+  Utils::PoolBufferWithTimedRetirement<uint8_t*, 5000, 500> TempCodeBufferAllocator;
 
   static uint64_t ExitFunctionLink(FEXCore::Core::CpuStateFrame* Frame, FEXCore::Context::ExitFunctionLinkData* Record);
 
@@ -526,8 +526,6 @@ private:
     FEXCore::UncheckedLongJump::LongJump(ThreadState->RestartJump, FEXCore::ToUnderlying(RestartOptions::Control::EnableFarARM64Jumps));
   }
 
-  // This is purely a debugging aid for developers to see if they are in JIT code space when inspecting raw memory
-  void EmitDetectionString();
   IR::RegisterAllocationPass* RAPass {};
   FEXCore::Core::DebugData* DebugData {};
 
