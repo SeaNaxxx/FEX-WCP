@@ -54,6 +54,9 @@ public:
   CPUBackend::CompiledCode CompileCode(uint64_t Entry, uint64_t Size, bool SingleInst, const FEXCore::IR::IRListView* IR,
                                        FEXCore::Core::DebugData* DebugData, bool CheckTF) override;
 
+  [[nodiscard]]
+  CPUBackend::CompiledCode LoadCachedCode(std::span<const uint8_t> HostBytes, std::span<const DiskCache::BlobEntryPoint> EntryPoints) override;
+
   void ClearCache() override;
 
   void ClearRelocations() override {
@@ -624,7 +627,7 @@ private:
 
   void EmitEntryPoint(ARMEmitter::BackwardLabel& HeaderLabel, bool CheckTF);
 
-  [[nodiscard]] SharedCodeBufferManager::CodeBufferAllocation AllocateCodeBufferInSharedCache(size_t Size);
+  [[nodiscard]] CodeBuffer::CodeBufferAllocation AllocateCodeBufferInSharedCache(size_t Size);
 
 #define DEF_OP(x) void Op_##x(IR::IROp_Header const* IROp, IR::Ref Node)
 

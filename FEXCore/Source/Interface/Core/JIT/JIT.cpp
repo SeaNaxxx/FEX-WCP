@@ -816,8 +816,8 @@ void Arm64JITCore::EmitEntryPoint(ARMEmitter::BackwardLabel& HeaderLabel, bool C
 }
 
 
-SharedCodeBufferManager::CodeBufferAllocation Arm64JITCore::AllocateCodeBufferInSharedCache(size_t Size) {
-  SharedCodeBufferManager::CodeBufferAllocation AllocatedInfo {};
+CodeBuffer::CodeBufferAllocation Arm64JITCore::AllocateCodeBufferInSharedCache(size_t Size) {
+  CodeBuffer::CodeBufferAllocation AllocatedInfo {};
   LOGMAN_THROW_A_FMT(CurrentCodeBuffer->LookupCache.get() == ThreadState->LookupCache->Shared, "INVARIANT VIOLATED: SharedLookupCache "
                                                                                                "doesn't match up!\n");
   // Bring CodeBuffer up to date
@@ -829,7 +829,7 @@ SharedCodeBufferManager::CodeBufferAllocation Arm64JITCore::AllocateCodeBufferIn
 
   // Attempt to allocate a buffer from the SharedCodeBuffers.
   while (AllocatedInfo.BufferAllocationOffset == nullptr) {
-    AllocatedInfo = SharedCodeBuffers.AtomicAllocateBuffer(Size);
+    AllocatedInfo = CurrentCodeBuffer->AtomicAllocateBuffer(Size);
 
     if (AllocatedInfo.BufferAllocationOffset == nullptr) {
       // If it didn't fit then clear the buffer and try again.
@@ -1117,6 +1117,7 @@ CPUBackend::CompiledCode Arm64JITCore::CompileCode(uint64_t Entry, uint64_t Size
       EntryPoint.second += Delta;
     }
     CodeBegin += Delta;
+    CodeData.HostCodeOffset = CodeData.BlockBegin - CurrentCodeBuffer->Ptr;
 
     // Offset the relocations based on how far forward they moved from the temp buffer to the new buffer.
     // TODO: Relocations should instead be relocated based on the block entrypoint instead of the codebuffer base.
@@ -1164,6 +1165,25 @@ CPUBackend::CompiledCode Arm64JITCore::CompileCode(uint64_t Entry, uint64_t Size
   this->IR = nullptr;
 
   return std::move(CodeData);
+}
+
+CPUBackend::CompiledCode Arm64JITCore::LoadCachedCode(std::span<const uint8_t> HostBytes, std::span<const DiskCache::BlobEntryPoint> EntryPoints) {
+  // we stored it aligned, better still be?
+  LOGMAN_THROW_A_FMT(HostBytes.size() % 16 == 0, "Needs to be 16B aligned!");
+  auto AllocatedInfo = AllocateCodeBufferInSharedCache(HostBytes.size());
+
+  uint8_t* Dest = AllocatedInfo.BufferAllocationOffset;
+  memcpy(Dest, HostBytes.data(), HostBytes.size());
+  ClearICache(Dest, HostBytes.size());
+
+  CPUBackend::CompiledCode Result;
+  Result.BlockBegin = Dest;
+  Result.Size = HostBytes.size();
+  Result.HostCodeOffset = Dest - CurrentCodeBuffer->Ptr;
+  for (const auto& Ep : EntryPoints) {
+    Result.EntryPoints[Ep.GuestRIP] = Dest + Ep.HostOffset;
+  }
+  return Result;
 }
 
 void Arm64JITCore::ResetStack() {
