@@ -60,14 +60,14 @@
         "strb w20, [x28, #1202]",
         "ldr d2, [x28, #1072]",
         "fcvtzs v2.2s, v2.2s",
-        "uzp1 v2.4h, v2.4h, v2.4h",
+        "sqxtn v2.4h, v2.4s",
         "sxtl v2.4s, v2.4h",
         "str d2, [x28, #1056]",
         "strh w20, [x28, #1064]"
       ]
     },
     "pf2id mm0, mm1": {
-      "ExpectedInstructionCount": 8,
+      "ExpectedInstructionCount": 7,
       "Comment": [
         "0x0f 0x0f 0x1d"
       ],
@@ -76,7 +76,6 @@
         "mov w20, #0xffff",
         "strb w20, [x28, #1202]",
         "ldr d2, [x28, #1072]",
-        "frint32z v2.4s, v2.4s",
         "fcvtzs v2.2s, v2.2s",
         "str d2, [x28, #1056]",
         "strh w20, [x28, #1064]"
@@ -145,7 +144,7 @@
         "ldr d3, [x28, #1072]",
         "dup v4.2s, v2.s[1]",
         "fsub s2, s2, s4",
-        "faddp v3.4s, v3.4s, v3.4s",
+        "faddp v3.2s, v3.2s, v3.2s",
         "mov v2.s[1], v3.s[0]",
         "str d2, [x28, #1056]",
         "strh w20, [x28, #1064]"

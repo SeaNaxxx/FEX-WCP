@@ -3583,12 +3583,22 @@ void OpDispatchBuilder::PF2IWOp(OpcodeArgs) {
   // Float to int32_t
   Src = _Vector_FToZS(Size, OpSize::i32Bit, Src);
 
-  // We now need to transpose the lower 16-bits of each element together
-  // Only needing to move the upper element down in this case
-  Src = _VUnZip(Size, OpSize::i16Bit, Src, Src);
+  // Truncate the 32-bit integers to 16-bit
+  // Saturate values outside the 16-bit range to smallest and largest 16-bit values
+  Src = _VSQXTN(Size, OpSize::i32Bit, Src);
 
   // Now we need to sign extend the 16bit value to 32-bit
   Src = _VSXTL(Size, OpSize::i16Bit, Src);
+  StoreResultFPR_WithOpSize(Op, Op->Dest, Src, Size);
+}
+
+void OpDispatchBuilder::PF2IDOp(OpcodeArgs) {
+  Ref Src = LoadSourceFPR(Op, Op->Src[0], Op->Flags);
+
+  const auto Size = OpSizeFromDst(Op);
+
+  Src = _Vector_FToZS(Size, OpSize::i32Bit, Src);
+
   StoreResultFPR_WithOpSize(Op, Op->Dest, Src, Size);
 }
 
