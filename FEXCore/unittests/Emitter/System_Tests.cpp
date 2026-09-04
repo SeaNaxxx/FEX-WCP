@@ -67,11 +67,8 @@ TEST_CASE_METHOD(TestDisassembler, "Emitter: System: Exception generation") {
   TEST_SINGLE(dcps3(65535), "dcps3 {#0xffff}");
 }
 TEST_CASE_METHOD(TestDisassembler, "Emitter: System: System instructions with register argument") {
-  if (false) {
-    // Unsupported in vixl.
-    TEST_SINGLE(wfet(Reg::r30), "wfet x30");
-    TEST_SINGLE(wfit(Reg::r30), "wfit x30");
-  }
+  TEST_SINGLE(wfet(Reg::r30), "wfet x30");
+  TEST_SINGLE(wfit(Reg::r30), "wfit x30");
 }
 TEST_CASE_METHOD(TestDisassembler, "Emitter: System: Hints") {
   TEST_SINGLE(nop(), "nop");
@@ -116,7 +113,7 @@ TEST_CASE_METHOD(TestDisassembler, "Emitter: System: Barriers") {
   TEST_SINGLE(isb(), "isb");
 
   TEST_SINGLE(sb(), "sb");
-  TEST_SINGLE(tcommit(), "tcommit");
+  TEST_SINGLE(tcommit(), "unimplemented (Unimplemented)");
 }
 TEST_CASE_METHOD(TestDisassembler, "Emitter: System: System register move") {
   // vixl doesn't have decoding for a bunch of these.
