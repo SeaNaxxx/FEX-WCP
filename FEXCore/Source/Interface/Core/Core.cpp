@@ -904,27 +904,27 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
           if (Thread->LookupCache->AddBlockExecutableRange(Thread, Hit->EntryPointRIPs, CodePage, FEXCore::Utils::FEX_PAGE_SIZE)) {
             SyscallHandler->MarkGuestExecutableRange(Thread, CodePage, FEXCore::Utils::FEX_PAGE_SIZE);
           }
-
-          LOGMAN_THROW_A_FMT(Hit->EntryPointRIPs.size() == Hit->EntryPointHostOffsets.size(), "Mismatched Disk Cache entrypoint pairs!");
-
-          uintptr_t CachedHostCode = 0;
-          for (size_t i = 0; i < Hit->EntryPointRIPs.size(); i++) {
-            void* HostAddr = LoadedCode.BlockBegin + Hit->EntryPointHostOffsets[i];
-            Thread->LookupCache->AddBlockMapping(Thread, Hit->EntryPointRIPs[i], Hit->GuestPages, HostAddr);
-            if (Hit->EntryPointRIPs[i] == GuestRIP) {
-              CachedHostCode = reinterpret_cast<uintptr_t>(HostAddr);
-            }
-          }
-
-          LOGMAN_THROW_A_FMT(CachedHostCode != 0, "Couldn't find GuestRIP in Disk Cache entrypoints!");
-
-          FEXCORE_PROFILE_INSTANT_INCREMENT(Thread, AccumulatedDiskCacheHitCount, 1);
-          Thread->FrontendDecoder->DelayedDisownBuffer();
-
-          Thread->FrontendDecoder->ValidateDisownedOrFree();
-          Thread->OpDispatcher->ValidateDisownedOrFree();
-          return CachedHostCode;
         }
+
+        LOGMAN_THROW_A_FMT(Hit->EntryPointRIPs.size() == Hit->EntryPointHostOffsets.size(), "Mismatched Disk Cache entrypoint pairs!");
+
+        uintptr_t CachedHostCode = 0;
+        for (size_t i = 0; i < Hit->EntryPointRIPs.size(); i++) {
+          void* HostAddr = LoadedCode.BlockBegin + Hit->EntryPointHostOffsets[i];
+          Thread->LookupCache->AddBlockMapping(Thread, Hit->EntryPointRIPs[i], Hit->GuestPages, HostAddr);
+          if (Hit->EntryPointRIPs[i] == GuestRIP) {
+            CachedHostCode = reinterpret_cast<uintptr_t>(HostAddr);
+          }
+        }
+
+        LOGMAN_THROW_A_FMT(CachedHostCode != 0, "Couldn't find GuestRIP in Disk Cache entrypoints!");
+
+        FEXCORE_PROFILE_INSTANT_INCREMENT(Thread, AccumulatedDiskCacheHitCount, 1);
+        Thread->FrontendDecoder->DelayedDisownBuffer();
+
+        Thread->FrontendDecoder->ValidateDisownedOrFree();
+        Thread->OpDispatcher->ValidateDisownedOrFree();
+        return CachedHostCode;
       }
     }
     FEXCORE_PROFILE_INSTANT_INCREMENT(Thread, AccumulatedDiskCacheMissCount, 1);

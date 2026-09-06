@@ -516,7 +516,7 @@ namespace DiskCache {
     for (uint32_t i = 0; i < Entry.GuestExtents.size(); i += 2) {
       XXH3_128bits_update(&HashState, reinterpret_cast<uint8_t*>(GuestRIP) + Entry.GuestExtents[i], Entry.GuestExtents[i + 1]);
       uint64_t FirstPage = (Entry.GuestExtents[i] + GuestRIP) & Utils::FEX_PAGE_MASK;
-      uint64_t LastPage = (Entry.GuestExtents[i] + Entry.GuestExtents[i + 1] + GuestRIP) & Utils::FEX_PAGE_MASK;
+      uint64_t LastPage = (Entry.GuestExtents[i] + GuestRIP + Entry.GuestExtents[i + 1] - 1) & Utils::FEX_PAGE_MASK;
       for (uint64_t Page = FirstPage; Page <= LastPage; Page += Utils::FEX_PAGE_SIZE) {
         if (GuestPages.size() == 0 || Page != GuestPages.back()) {
           GuestPages.push_back(Page);
