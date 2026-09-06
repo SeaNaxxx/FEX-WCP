@@ -7,7 +7,7 @@
       "AFP"
     ],
     "DisabledHostFeatures": [],
-    "BinaryCacheVersion": 15
+    "BinaryCacheVersion": 16
   },
   "Instructions": {
     "pmulhuw xmm0, xmm1": {

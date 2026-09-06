@@ -1494,6 +1494,9 @@ void Decoder::DecodeLoop(const uint8_t* _InstStream, uint64_t GuestSizePause) {
           TotalInstructions -= BlockIt->NumInstructions;
           DecodedSize = BlockStartOffset;
           InstStream -= PCOffset;
+          if (DecodedMaxAddress == OpEndAddress) {
+            DecodedMaxAddress -= PCOffset;
+          }
           EraseBlock = true;
         } else {
           LogMan::Msg::EFmt("{} instruction in entry block: {:X}",

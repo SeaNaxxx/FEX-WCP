@@ -9,7 +9,7 @@
       "SVE256",
       "AFP"
     ],
-    "BinaryCacheVersion": 15
+    "BinaryCacheVersion": 16
   },
   "Instructions": {
     "Chained add": {
