@@ -132,7 +132,7 @@ public:
   // Same but on disk cache packed relocations
   [[nodiscard]]
   bool ApplyPackedCodeRelocations(uint64_t GuestDelta, std::span<std::byte> Code, std::span<const DiskCache::BlobSmallRelocation> SmallRelocs,
-                                  std::span<const DiskCache::BlobThunkRelocation> ThunkRelocs, bool ForStorage);
+                                  std::span<const DiskCache::BlobThunkRelocation> ThunkRelocs);
 };
 
 class ContextImpl final : public FEXCore::Context::Context, public CPU::SharedCodeBufferManager {
@@ -249,6 +249,9 @@ public:
   }
 
   void MarkMonoBackpatcherBlock(uint64_t BlockEntry) override;
+  std::atomic<uint64_t>& GetMonoBackPatcherBlock() {
+    return MonoBackpatcherBlock;
+  }
 
   // Manual debugging tooling which is useful for developers.
   struct TrackingEmpty {

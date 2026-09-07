@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <charconv>
+#include <atomic>
 
 namespace FEXCore {
 
@@ -279,7 +280,8 @@ namespace DiskCache {
     {
       std::lock_guard Guard(IndexMutex);
       if (Index.contains(Hash)) {
-        // shouldn't really happen.. assert or something?
+        // LogMan::Msg::IFmt("duplicate store {}", Hash);
+        //  shouldn't really happen.. assert or something?
         return true;
       }
     }
@@ -433,17 +435,34 @@ namespace DiskCache {
       RONames.remove_prefix(Delim + 1);
     }
 
+    WritingDiskCache = (bool)RWCacheDB;
+    ReadingDiskCache = !ROCacheDBs.empty() || RWCacheDB != nullptr;
+
     if (IsWritingDiskCache()) {
       FEXCore::Threads::Flags WriterThreadFlags = {.LowPriority = true, .Internal = true};
       Writer = fextl::make_unique<WorkQueueThread>(WriterThreadFlags);
     }
   }
 
-  uint64_t DiskCache::MakeBlobKey(const uint64_t CodeKey) {
-    struct {
+  uint64_t DiskCache::MakeBlobKey(Core::InternalThreadState* Thread, const uint64_t CodeKey, bool Writable, bool MonoBackpatcher) {
+    struct __attribute__((packed)) {
       uint64_t CodeKey;
       XXH128_hash_t BucketHash;
-    } BlobKeyBytes = {CodeKey, BucketHash};
+      uint8_t Flags;
+    } BlobKeyBytes = {CodeKey, BucketHash, 0};
+
+    if (Writable) {
+      BlobKeyBytes.Flags |= 1 << 0;
+    }
+    if (CTX->AreMonoHacksActive()) {
+      BlobKeyBytes.Flags |= 1 << 1;
+    }
+    if (Thread->CurrentFrame->State.flags[X86State::RFLAG_TF_RAW_LOC]) {
+      BlobKeyBytes.Flags |= 1 << 2;
+    }
+    if (MonoBackpatcher) {
+      BlobKeyBytes.Flags |= 1 << 3;
+    }
 
     return XXH3_64bits(&BlobKeyBytes, sizeof(BlobKeyBytes));
   }
@@ -454,18 +473,32 @@ namespace DiskCache {
       return std::nullopt;
     }
     if (Region && Region->FileStartVA) {
-      GuestCodeKey = GuestRIP - Region->FileStartVA;
+      struct __attribute__((packed)) {
+        uint64_t GuestOffset;
+        uint64_t FileId;
+      } FileBackedKey = {GuestRIP - Region->FileStartVA, Region->FileInfo.FileId};
+      GuestCodeKey = XXH3_64bits(&FileBackedKey, sizeof(FileBackedKey));
     } else {
       if (!AnonCaching) {
         return std::nullopt;
       }
       Thread->FrontendDecoder->DecodeLoop(reinterpret_cast<const uint8_t*>(GuestRIP), AnonPrefixGuestBytes);
+      const auto* BlockInfo = Thread->FrontendDecoder->GetDecodedBlockInfo();
+
       XXH3_state_t HashState;
       XXH3_64bits_reset(&HashState);
-      for (auto& SubBlock : Thread->FrontendDecoder->GetDecodedBlockInfo()->Blocks) {
-        XXH3_64bits_update(&HashState, reinterpret_cast<const uint8_t*>(SubBlock.Entry), SubBlock.Size);
+      for (auto& SubBlock : BlockInfo->Blocks) {
         if (SubBlock.BlockStatus != Frontend::Decoder::DecodedBlockStatus::SUCCESS) {
           return std::nullopt;
+        }
+        uint64_t HashStart = SubBlock.Entry;
+        // skip over masked in-block data and data/etc gaps between blocks
+        for (auto& DataMask : SubBlock.DataMasks) {
+          XXH3_64bits_update(&HashState, reinterpret_cast<const uint8_t*>(HashStart), DataMask.FieldAddress - HashStart);
+          HashStart = DataMask.FieldAddress + DataMask.ValueSize;
+        }
+        if (HashStart != SubBlock.Entry + SubBlock.Size) {
+          XXH3_64bits_update(&HashState, reinterpret_cast<const uint8_t*>(HashStart), SubBlock.Size - (HashStart - SubBlock.Entry));
         }
       }
       GuestCodeKey = XXH3_64bits_digest(&HashState);
@@ -476,7 +509,9 @@ namespace DiskCache {
       // LogMan::Msg::IFmt("anon lookup! length {:d} {}", GuestCodeKey, TotalSize);
     }
 
-    uint64_t Hash = MakeBlobKey(*GuestCodeKey);
+    auto RangeInfo = CTX->SyscallHandler->QueryGuestExecutableRange(Thread, GuestRIP);
+    uint64_t Hash =
+      MakeBlobKey(Thread, *GuestCodeKey, RangeInfo.Writable, GuestRIP == CTX->GetMonoBackPatcherBlock().load(std::memory_order_relaxed));
 
     IndexEntry Entry;
     {
@@ -492,7 +527,6 @@ namespace DiskCache {
     // found a key hash match, could still be a miss, check guest hash
 
     // do we have enough room in our live code to even hash GuestSize worth?
-    auto RangeInfo = CTX->SyscallHandler->QueryGuestExecutableRange(Thread, GuestRIP);
     if (RangeInfo.Size == 0 || RangeInfo.Base > GuestRIP) {
       return std::nullopt;
     }
@@ -614,7 +648,7 @@ namespace DiskCache {
       EntryPointRip += GuestRIP;
     }
 
-    if (!CTX->CodeCache.ApplyPackedCodeRelocations(GuestRIP, std::as_writable_bytes(HitData.HostCode), SmallRelocs, ThunkRelocs, false)) {
+    if (!CTX->CodeCache.ApplyPackedCodeRelocations(GuestRIP, std::as_writable_bytes(HitData.HostCode), SmallRelocs, ThunkRelocs)) {
       return std::nullopt;
     }
 
@@ -716,6 +750,8 @@ namespace DiskCache {
       }
     }
 
+    fextl::set<uint64_t> DataMaskAddresses;
+
     fextl::vector<uint32_t> ExactGuestCodeExtents;
     uint64_t CurStartExtent = 0, CurEndExtent = 0;
     const Frontend::Decoder::DecodedBlocks* LastBlock = nullptr;
@@ -736,6 +772,16 @@ namespace DiskCache {
           CurStartExtent = SubBlock.Entry;
           CurEndExtent = SubBlock.Entry + SubBlock.Size;
         }
+      }
+      // split extents according to data masks as well
+      for (auto& Mask : SubBlock.DataMasks) {
+        if (Mask.FieldAddress > CurStartExtent) {
+          ExactGuestCodeExtents.push_back(CurStartExtent - GuestRIP);
+          ExactGuestCodeExtents.push_back(Mask.FieldAddress - CurStartExtent);
+        }
+        CurStartExtent = Mask.FieldAddress + Mask.ValueSize;
+
+        DataMaskAddresses.insert(Mask.FieldAddress);
       }
       LastBlock = &SubBlock;
     }
@@ -767,7 +813,9 @@ namespace DiskCache {
     Blob.resize(TotalSize);
     uint8_t* BlobData = Blob.data();
 
-    uint64_t BlobKey = MakeBlobKey(GuestCodeKey);
+    auto RangeInfo = CTX->SyscallHandler->QueryGuestExecutableRange(Thread, GuestRIP);
+    uint64_t BlobKey =
+      MakeBlobKey(Thread, GuestCodeKey, RangeInfo.Writable, GuestRIP == CTX->GetMonoBackPatcherBlock().load(std::memory_order_relaxed));
     MesaFOZ::foz_payload_key Key = {};
     fextl::string BlobName = fextl::fmt::format("{:016x}", BlobKey);
     memcpy(Key.bytes, BlobName.data(), BlobName.size());
@@ -837,6 +885,24 @@ namespace DiskCache {
         SmallRelocs[SmallIdx++] = SmallReloc;
         break;
       }
+      case CPU::RelocationTypes::RELOC_GUEST_PATCHABLE_DATA_MOVE: {
+        BlobSmallRelocation SmallReloc = {};
+        SmallReloc.Offset = Reloc.Header.Offset;
+        SmallReloc.Type = uint8_t(Reloc.Header.Type);
+        SmallReloc.PatchableData.RegisterIndex = Reloc.GuestPatchableData.RegisterIndex;
+        SmallReloc.PatchableData.ValueSize = Reloc.GuestPatchableData.ValueSize;
+        SmallReloc.PatchableData.SiteOffset = uint32_t(Reloc.GuestPatchableData.SiteAddress - GuestRIP);
+        SmallRelocs[SmallIdx++] = SmallReloc;
+
+        // mark the corresponding data mask consumed - we might not find one if they got removed due to the smc workaround
+        // the hash will just fail on lookup later
+        auto It = DataMaskAddresses.find(Reloc.GuestPatchableData.SiteAddress);
+        if (It != DataMaskAddresses.end()) {
+          DataMaskAddresses.erase(It);
+        }
+
+        break;
+      }
       case CPU::RelocationTypes::RELOC_NAMED_THUNK_MOVE: {
         BlobThunkRelocation BigReloc = {};
         BigReloc.Offset = Reloc.Header.Offset;
@@ -846,6 +912,12 @@ namespace DiskCache {
         break;
       }
       }
+    }
+
+    if (!DataMaskAddresses.empty()) {
+      LogMan::Msg::IFmt("DiskCache: DataMask unaccounted for! {:x}", GuestCodeKey);
+      // this would mean we omitted contents in the hash that we're not going to patch, which would be loading corrupt code
+      return false;
     }
 
     memcpy(BlobData + GuestCodeOffset, GuestCode.data(), GuestCode.size());
