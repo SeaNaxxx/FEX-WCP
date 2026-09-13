@@ -2872,6 +2872,18 @@
         "ldr x4, [x20]"
       ]
     },
+    "mov rax, [qword 0x8888e0000008]": {
+      "ExpectedInstructionCount": 4,
+      "Comment": [
+        "0xa3"
+      ],
+      "ExpectedArm64ASM": [
+        "mov x20, #0x8",
+        "movk x20, #0xe000, lsl #16",
+        "movk x20, #0x8888, lsl #32",
+        "ldr x4, [x20]"
+      ]
+    },
     "mov eax, [qword 0xe0000000]": {
       "ExpectedInstructionCount": 2,
       "Comment": [
@@ -2890,6 +2902,18 @@
       "ExpectedArm64ASM": [
         "mov w20, #0x8",
         "movk w20, #0xe000, lsl #16",
+        "str x4, [x20]"
+      ]
+    },
+    "mov [qword 0x8888e0000008], rax": {
+      "ExpectedInstructionCount": 4,
+      "Comment": [
+        "0xa3"
+      ],
+      "ExpectedArm64ASM": [
+        "mov x20, #0x8",
+        "movk x20, #0xe000, lsl #16",
+        "movk x20, #0x8888, lsl #32",
         "str x4, [x20]"
       ]
     },
