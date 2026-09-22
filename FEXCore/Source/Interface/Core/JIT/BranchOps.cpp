@@ -283,51 +283,11 @@ DEF_OP(CondJump) {
 }
 
 DEF_OP(Syscall) {
-  // Arguments are passed as follows:
-  // X0: SyscallHandler
-  // X1: ThreadState
+  SpillStaticRegs(TMP1);
 
-  PushDynamicRegs(TMP1);
-
-  uint32_t GPRSpillMask = ~0U;
-  uint32_t FPRSpillMask = ~0U;
-
-  SpillStaticRegs(TMP1, {
-                          .GPRSpillMask = GPRSpillMask,
-                          .FPRSpillMask = FPRSpillMask,
-                        });
-
-  // Now that we are spilled, store in the state that we are in a syscall
-  // Still without overwriting registers that matter
-  // 16bit LoadConstant to be a single instruction
-  // This gives the signal handler a value to check to see if we are in a syscall at all
-  LoadConstant(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, GPRSpillMask & 0xFFFF);
-  str(ARMEmitter::XReg::x0, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
-
-  ldr(ARMEmitter::XReg::x0, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.SyscallHandlerObj));
-  ldr(ARMEmitter::XReg::x3, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.SyscallHandlerFunc));
-  mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r1, STATE.R());
-
-  if (!CTX->Config.DisableVixlIndirectCalls) [[unlikely]] {
-    GenerateIndirectRuntimeCall<uint64_t, void*, void*, void*>(ARMEmitter::Reg::r3);
-  } else {
-    blr(ARMEmitter::Reg::r3);
-  }
-
-  // Fix the stack and any values that were stepped on
-  // Syscall result is in any static register that the frontend desired.
-  FillStaticRegs({
-    .OptionalReg = ARMEmitter::Reg::r1,
-    .OptionalReg2 = ARMEmitter::Reg::r2,
-    .GPRFillMask = GPRSpillMask,
-    .FPRFillMask = FPRSpillMask,
-  });
-
-  // Now the registers we've spilled are back in their original host registers
-  // We can safely claim we are no longer in a syscall
-  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
-
-  PopDynamicRegs();
+  // Jump to the syscall dispatch handler. We won't return after this.
+  ldr(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.ThreadDispatchSyscallHandler));
+  br(TMP1);
 }
 
 DEF_OP(Thunk) {
@@ -414,27 +374,22 @@ DEF_OP(ValidateCode) {
 DEF_OP(ThreadRemoveCodeEntry) {
   auto Op = IROp->C<IR::IROp_ThreadRemoveCodeEntry>();
 
-  // Move the entry to ABI before saving state.
-  mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r1, GetReg(Op->Entry));
+  SpillStaticRegs(TMP1);
 
-  PushDynamicRegs(TMP4);
-  SpillStaticRegs(TMP4);
+  // Store the new RIP to go to.
+  str(GetReg(Op->NewRIP).X(), STATE, offsetof(FEXCore::Core::CpuStateFrame, State.rip));
+
+  // Move the entry to ABI before saving state.
+  mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r1, GetReg(Op->EntryToInvalidate));
 
   // Arguments are passed as follows:
   // X0: Thread
-  // X1: RIP
+  // X1: RIPToInvalidate
   mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, STATE.R());
 
-  ldr(ARMEmitter::XReg::x2, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.ThreadRemoveCodeEntryFromJIT));
-  if (!CTX->Config.DisableVixlIndirectCalls) [[unlikely]] {
-    GenerateIndirectRuntimeCall<void, void*, void*>(ARMEmitter::Reg::r2);
-  } else {
-    blr(ARMEmitter::Reg::r2);
-  }
-  FillStaticRegs();
-
-  // Fix the stack and any values that were stepped on
-  PopDynamicRegs();
+  // Jump to the invalidate dispatch handler. We won't return after this.
+  ldr(ARMEmitter::XReg::x2, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.ThreadDispatchRemoveCodeEntry));
+  br(ARMEmitter::XReg::x2);
 }
 
 DEF_OP(CPUID) {
