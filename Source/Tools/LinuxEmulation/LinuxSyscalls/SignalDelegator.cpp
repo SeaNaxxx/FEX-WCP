@@ -400,6 +400,20 @@ bool SignalDelegator::HandleDispatcherGuestSignal(FEXCore::Core::InternalThreadS
   // Set our state register to point to our guest thread data
   ArchHelpers::Context::SetState(ucontext, reinterpret_cast<uint64_t>(Frame));
 
+  if (GuestAction->sa_flags & SA_RESETHAND) {
+
+    {
+      // If SA_RESETHAND is set, then the signal handler is immediately reset to SIG_DFL.
+      std::lock_guard lk(GuestDelegatorMutex);
+      GuestAction->sigaction_handler.handler = SIG_DFL;
+    }
+
+    // If this signal is not required by FEX then we can fully uninstall the host handler as well.
+    if (HostHandlers[Signal].Required.load(std::memory_order_relaxed) != true) {
+      UninstallHostHandler(Signal);
+    }
+  }
+
   return true;
 }
 
@@ -585,6 +599,11 @@ bool SignalDelegator::HandleFrontendSIGSEGV(FEXCore::Core::InternalThreadState* 
     return true;
   }
 #endif
+
+  // If this fault is in the main thread stack guard region, we should try to grow the main thread stack.
+  if (SigInfo.si_code == SEGV_ACCERR && FEXCore::Allocator::TryGrowMainThreadStack(reinterpret_cast<uintptr_t>(SigInfo.si_addr))) {
+    return true;
+  }
 
   return false;
 }
