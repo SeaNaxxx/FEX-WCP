@@ -754,13 +754,17 @@ void Arm64JITCore::EmitTFCheck() {
     .TrapNo = X86State::X86_TRAPNO_DB,
     .si_code = 2,
     .err_code = 0,
+    .FaultAddress = 0,
   };
 
   uint64_t Constant {};
-  memcpy(&Constant, &State, sizeof(State));
+  memcpy(&Constant, &State, sizeof(uint64_t));
 
-  LoadConstant(ARMEmitter::Size::i64Bit, TMP1, Constant);
+  LoadConstant(ARMEmitter::Size::i64Bit, TMP1, static_cast<uint64_t>(Constant));
+  // Can't use stp, offset is too large.
   str(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, SynchronousFaultData));
+  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, SynchronousFaultData) + 8);
+
   ldr(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.GuestSignal_SIGTRAP));
   br(TMP1);
 
@@ -848,9 +852,9 @@ CodeBuffer::CodeBufferAllocation Arm64JITCore::AllocateCodeBufferInSharedCache(s
   return AllocatedInfo;
 }
 
-CPUBackend::CompiledCode Arm64JITCore::CompileCode(uint64_t Entry, uint64_t Size, bool SingleInst, const FEXCore::IR::IRListView* IR,
+CPUBackend::CompiledCode Arm64JITCore::EmitJITCode(uint64_t Entry, uint64_t Size, bool SingleInst, const FEXCore::IR::IRListView* IR,
                                                    FEXCore::Core::DebugData* DebugData, bool CheckTF) {
-  FEXCORE_PROFILE_SCOPED("Arm64::CompileCode");
+  FEXCORE_PROFILE_SCOPED("Arm64::EmitJITCode");
 
   const auto PrevNumAllocations = Relocations.size();
 
