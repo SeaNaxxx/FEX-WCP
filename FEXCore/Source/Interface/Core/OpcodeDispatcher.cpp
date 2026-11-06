@@ -1370,20 +1370,19 @@ void OpDispatchBuilder::MOVOffsetOp(OpcodeArgs) {
 }
 
 void OpDispatchBuilder::CPUIDOp(OpcodeArgs) {
-  Ref Src = LoadGPRRegister(X86State::REG_RAX);
-  Ref Leaf = LoadGPRRegister(X86State::REG_RCX);
+  BlockSetRIP = true;
 
-  Ref RAX = _AllocateGPR(false);
-  Ref RBX = _AllocateGPR(false);
-  Ref RCX = _AllocateGPR(false);
-  Ref RDX = _AllocateGPR(false);
+  // Calculate flags early.
+  CalculateDeferredFlags();
 
-  _CPUID(Src, Leaf, RAX, RBX, RCX, RDX);
+  // Similar to Syscall. Store the RIP to the start of the instruction.
+  // CPUID operation will modify the RIP itself.
+  const auto GPRSize = GetGPROpSize();
+  auto NewRIP = GetRelocatedPC(Op, -Op->InstSize);
+  _StoreContextGPR(GPRSize, NewRIP, offsetof(FEXCore::Core::CPUState, rip));
 
-  StoreGPRRegister(X86State::REG_RAX, RAX);
-  StoreGPRRegister(X86State::REG_RBX, RBX);
-  StoreGPRRegister(X86State::REG_RCX, RCX);
-  StoreGPRRegister(X86State::REG_RDX, RDX);
+  FlushRegisterCache();
+  _CPUID(Op->InstSize);
 }
 
 uint32_t OpDispatchBuilder::GetConstantShift(X86Tables::DecodedOp Op, bool Is1Bit) {
@@ -4752,11 +4751,11 @@ OpDispatchBuilder::OpDispatchBuilder(FEXCore::Context::ContextImpl* ctx, FEXCore
   : IREmitter {ctx->OpDispatcherAllocator, ctx->HostFeatures.SupportsTSOImm9 != 0}
   , CTX {ctx}
   , Thread {Thread} {
-  if (CTX->HostFeatures.SupportsAVX && CTX->HostFeatures.SupportsSVE256) {
+  if (CTX->HostFeatures.SupportsAVX() && CTX->HostFeatures.SupportsSVE256()) {
     SaveAVXStateFunc = &OpDispatchBuilder::SaveAVXState;
     RestoreAVXStateFunc = &OpDispatchBuilder::RestoreAVXState;
     DefaultAVXStateFunc = &OpDispatchBuilder::DefaultAVXState;
-  } else if (CTX->HostFeatures.SupportsAVX) {
+  } else if (CTX->HostFeatures.SupportsAVX()) {
     SaveAVXStateFunc = &OpDispatchBuilder::AVX128_SaveAVXState;
     RestoreAVXStateFunc = &OpDispatchBuilder::AVX128_RestoreAVXState;
     DefaultAVXStateFunc = &OpDispatchBuilder::AVX128_DefaultAVXState;
